@@ -28,7 +28,27 @@ def lowPassFIR(fc, fa, N, typeF = 'rect'):
     
     return h
 
-def firFilter(h, x):
+def highPassFIR(fc, fa, N):
+    """
+    Calculate FIR coeffs for a lowpass filter
+    
+    :param fc : cutoff frequency
+    :param fa : sampling frequency
+    :param N  : number of coefficients
+    
+    :return h : FIR filter coefficients
+    """
+    fu = fc/fa    
+    d  = (N-1)/2    
+    n  = np.arange(0, N)    
+    
+    # calculate filter coefficients
+    h = -(2*fu)*np.sinc(2*fu*(n-d))
+    h[int(d)] = (1 - 2*fu)
+   
+    return h
+
+def firFilter2(h, x):
     """
     :param h: impulse response (symmetric)
     :param x: input signal 
@@ -64,7 +84,6 @@ def pulseShape(pulseType, SpS=2, N=1024, alpha=0.1, Ts=1):
         tindex, filterCoeffs = rcosfilter(N, alpha, Ts, Fa)
         
     return filterCoeffs/np.sqrt(np.sum(filterCoeffs**2))
-
 
 def eyediagram(sig, Nsamples, SpS, n=3, ptype='fast', plotlabel=None):
     """
