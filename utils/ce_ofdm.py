@@ -143,15 +143,19 @@ def Tx(paramTx):
     bitMap = bitMap.reshape(-1, int(np.log2(M)))
 
     # Geração de sequência aleatória de bits
-    bits = np.random.randint(2, size = 6*2**15)
+    bits = np.random.randint(2, size = 6*2**16)
 
     # Mapeamento bits - símbolos
     symbTx = modulateGray(bits, M, constType)
     symbTx = symbTx/np.sqrt(signal_power(symbTx))
     
     # Portadoras piloto
-    pilot = -0.7071067811865475+1j*0.7071067811865475 #0.9475658169809407-0.9475658169809407j
-    
+    if(M == 4):
+        pilot = -0.7071067811865475 + 1j*0.7071067811865475
+        
+    elif(M == 16):
+        pilot = 0.9475658169809407 - 1j*0.9475658169809407
+      
     # Geração dos símbolos OFDM
     symbTx_OFDM, symbTx = modulateOFDM(N, G, K, pilot, symbTx)
     
