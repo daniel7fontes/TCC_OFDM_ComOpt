@@ -48,7 +48,7 @@ def highPassFIR(fc, fa, N):
    
     return h
 
-def firFilter(h, x):
+def firFilter2(h, x):
     """
     :param h: impulse response (symmetric)
     :param x: input signal 
