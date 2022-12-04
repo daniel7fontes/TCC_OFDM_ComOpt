@@ -53,7 +53,7 @@ def hermit(V):
     return Vh
 
 
-def modulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbTx):
+def modulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbTx):
     """
     OFDM symbols modulator.
     Parameters
@@ -61,6 +61,8 @@ def modulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbTx):
     Nfft   : scalar
              size of IFFT
     Ns     : scalar
+             number of subcarriers
+    N      : scalar
              number of information subcarriers
     Nz     : scalar
              number of nulls subcarriers
@@ -81,19 +83,19 @@ def modulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbTx):
                   OFDM symbols sequency transmitted
     """
     
-    Int = int(Ns/K)
-    carriers = np.arange(0, Ns)
+    Int = int(N/K)
+    carriers = np.arange(0, N)
     pilot_carriers = np.append(carriers[0::Int], carriers[-1])
 
-    symbTx_P = np.zeros( (int(len(symbTx)/Ns), Nfft + G), complex)
+    symbTx_P = np.zeros( (int(len(symbTx)/N), Nfft + G), complex)
     aux = 0
     
     for i in range(len(symbTx_P)):
         # Adição das portadoras piloto
-        symbTx[int(aux):int(aux + Ns)][pilot_carriers] = pilot
+        symbTx[int(aux):int(aux + N)][pilot_carriers] = pilot
         
-        symbTx_P[i, G : G + Nfft] = hermit( np.concatenate( (np.zeros(int(Nz)), symbTx[int(aux):int(aux + Ns)]) ) )
-        aux = aux + Ns
+        symbTx_P[i, G : G + Nfft] = hermit( np.concatenate( (symbTx[int(aux):int(aux + N)], np.zeros(int(Nz)) ) ) )
+        aux = aux + N
         
         # Aplicação da IFFT
         symbTx_P[i, G : Nfft + G] = ifft(symbTx_P[i, G:Nfft + G])*np.sqrt(Nfft)
@@ -107,7 +109,7 @@ def modulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbTx):
     return symbTx_OFDM, symbTx
 
 
-def demodulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbRx_OFDM):
+def demodulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbRx_OFDM):
     """
     OFDM symbols demodulator.
     Parameters
@@ -115,6 +117,8 @@ def demodulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbRx_OFDM):
     Nfft        : scalar
                   size of IFFT
     Ns          : scalar
+                  number of subcarriers
+    N           : scalar
                   number of information subcarriers
     Nz          : scalar
                   number of nulls subcarriers
@@ -139,12 +143,12 @@ def demodulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbRx_OFDM):
                  channel phase estimated
     """
     
-    Int = int(Ns/K)
-    carriers = np.arange(0, Ns)
+    Int = int(N/K)
+    carriers = np.arange(0, N)
     pilot_carriers = np.append(carriers[0::Int], carriers[-1])
-    
+
     symbRx_P = np.zeros((int(len(symbRx_OFDM)/(Nfft+G)), Nfft), complex)
-    
+
     aux = 0
     H_abs_F = 0
     H_pha_F = 0
@@ -158,7 +162,7 @@ def demodulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbRx_OFDM):
         symbRx_P[i,:] = fft(symbRx_P[i,:])/np.sqrt(Nfft)
 
     for i in range(len(symbRx_P)):
-        H_est = symbRx_P[i,1 + Nz:1 + Nz + Ns][pilot_carriers] / pilot
+        H_est = symbRx_P[i,1:1 + N][pilot_carriers] / pilot
 
         H_abs = interp1d(carriers[pilot_carriers], np.abs(H_est), kind = 'linear')(carriers)
         H_pha = interp1d(carriers[pilot_carriers], np.angle(H_est), kind = 'linear')(carriers)
@@ -170,15 +174,15 @@ def demodulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbRx_OFDM):
     H_pha = H_pha_F/len(symbRx_P)
 
     # Conversão P/S
-    symbRx_S     = np.zeros(int(len(symbRx_P)*Ns), complex)  # Símbolos equalizados
-    symbRx_S_neq = np.zeros(int(len(symbRx_P)*Ns), complex)  # Símbolos não-equalizados
+    symbRx_S     = np.zeros(int(len(symbRx_P)*N), complex)  # Símbolos equalizados
+    symbRx_S_neq = np.zeros(int(len(symbRx_P)*N), complex)  # Símbolos não-equalizados
     aux = 0
 
     for i in range(len(symbRx_P)):
         # Retirada da simetria hermitiana e equalização
-        symbRx_S[int(aux):int(aux + Ns)]     = symbRx_P[i,1 + Nz:1 + Nz + Ns]/(H_abs*np.exp(1j*H_pha))
-        symbRx_S_neq[int(aux):int(aux + Ns)] = symbRx_P[i,1 + Nz:1 + Nz + Ns]
-        aux = aux + Ns
+        symbRx_S[int(aux):int(aux + N)]     = symbRx_P[i,1:1 + N]/(H_abs*np.exp(1j*H_pha))
+        symbRx_S_neq[int(aux):int(aux + N)] = symbRx_P[i,1:1 + N]
+        aux = aux + N
 
     symbRx     = symbRx_S
     symbRx_neq = symbRx_S_neq
@@ -201,7 +205,8 @@ def Tx(paramTx):
     
     paramTx.M: number of constellation symbols [default: 4]
     paramTx.Nfft: size of IFFT [default: 512]
-    paramTx.Ns: number of information subcarriers [default: 255]
+    paramTx.Ns: number of subcarriers [default: 255]
+    paramTx.N: number of information subcarriers [default: 255]
     paramTx.Nz: number of null subcarriers [default: 0]
     paramTx.G: cyclic prefix length [default: 4]
     paramTx.K: number of pilot carriers per OFDM block [default: 8]
@@ -242,6 +247,7 @@ def Tx(paramTx):
     paramTx.M    = getattr(paramTx, "M", 4)
     paramTx.Nfft = getattr(paramTx, "Nfft", 512)
     paramTx.Ns   = getattr(paramTx, "Ns", 255)
+    paramTx.N    = getattr(paramTx, "N", 255)
     paramTx.Nz   = getattr(paramTx, "Nz", 0)
     paramTx.G    = getattr(paramTx, "G", 4)
     paramTx.K    = getattr(paramTx, "K", 8)
@@ -267,6 +273,7 @@ def Tx(paramTx):
     M    = paramTx.M
     Nfft = paramTx.Nfft
     Ns   = paramTx.Ns
+    N    = paramTx.N
     Nz   = paramTx.Nz
     G    = paramTx.G
     K    = paramTx.K
@@ -287,7 +294,7 @@ def Tx(paramTx):
     bitMap = bitMap.reshape(-1, int(np.log2(M)))
 
     # Random bits sequency
-    bits = np.random.randint(2, size = Ns*2**10)
+    bits = np.random.randint(2, size = Ns*2**9)
     
     # Maping bits - symbols
     symbTx = modulateGray(bits, M, constType)
@@ -297,10 +304,10 @@ def Tx(paramTx):
     pilot = max(symbTx.real) + 1j*max(symbTx.imag)
     
     # OFDM symbols generation
-    symbTx_OFDM, symbTx = modulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbTx)
+    symbTx_OFDM, symbTx = modulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbTx)
     
     # Pulse choice
-    pulse = pulseShape('rrc', SpS, alpha = 0.15)
+    pulse = pulseShape('rrc', SpS, alpha = 0.25)
     pulse = pulse/max(abs(pulse))
     
     # CE-DD-OFDM
@@ -345,7 +352,8 @@ def Rx(ipd, pilot, pulse, t, paramRx):
     paramRx.Scheme: OFDM scheme ["CE-DD-OFDM", "DD-OFDM"] [default: "CE-DD-OFDM"]
 
     paramTx.Nfft: size of IFFT [default: 512]
-    paramTx.Ns: number of information subcarriers [default: 255]
+    paramTx.Ns: number of subcarriers [default: 255]
+    paramTx.N: number of information subcarriers [default: 255]
     paramTx.Nz: number of null subcarriers [default: 0]
     paramRx.G: cyclic prefix length [default: 4]
     paramRx.K: number of pilot carriers per OFDM block [default: 8]
@@ -372,6 +380,7 @@ def Rx(ipd, pilot, pulse, t, paramRx):
     
     paramRx.Nfft = getattr(paramRx, "Nfft", 512)
     paramRx.Ns   = getattr(paramRx, "Ns", 255)
+    paramRx.N    = getattr(paramRx, "N", 255)
     paramRx.Nz   = getattr(paramRx, "Nz", 0)
     paramRx.G = getattr(paramRx, "G", 4)
     paramRx.K = getattr(paramRx, "K", 8)
@@ -385,6 +394,7 @@ def Rx(ipd, pilot, pulse, t, paramRx):
     
     Nfft = paramRx.Nfft
     Ns   = paramRx.Ns
+    N    = paramRx.N
     Nz   = paramRx.Nz
     G = paramRx.G
     K = paramRx.K
@@ -408,6 +418,6 @@ def Rx(ipd, pilot, pulse, t, paramRx):
         symbRx_OFDM = sigRx[0::SpS]
     
     # OFDM demodulation
-    symbRx, symbRx_neq, H_abs, H_pha = demodulateOFDM(Nfft, Nz, Ns, G, K, pilot, symbRx_OFDM)
+    symbRx, symbRx_neq, H_abs, H_pha = demodulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbRx_OFDM)
     
     return symbRx, symbRx_neq, sigRx, H_abs, H_pha
