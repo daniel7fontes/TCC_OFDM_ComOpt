@@ -200,8 +200,9 @@ def Tx(paramTx):
         
     paramTx.SpS: samples per symbol [default: 32]
     paramTx.Rs: symbols rate [default: 1.5e9]
+    paramTx.Fa: sampling frequency [default: 48e9]
     paramTx.Fc: optical carrier frequency [Hz] [default: 193.4e12 Hz]
-    paramTx.Scheme: OFDM scheme ["CE-DD-OFDM", "DD-OFDM"] [default: "CE-DD-OFDM"]
+    paramTx.Scheme: OFDM scheme ["CE-DDO-OFDM", "DDO-OFDM"] [default: "CE-DDO-OFDM"]
     
     paramTx.M: number of constellation symbols [default: 4]
     paramTx.Nfft: size of IFFT [default: 512]
@@ -211,6 +212,7 @@ def Tx(paramTx):
     paramTx.G: cyclic prefix length [default: 4]
     paramTx.K: number of pilot carriers per OFDM block [default: 8]
     
+    paramTx.g:  gain in the signal before the MZM [default: 1.0]
     paramTx.Vπ: MZM switching voltage [V] [default: 4.4 V]
     paramTx.Vb: MZM bias voltage [V] [default: -2.2 V]
     paramTx.Pi_dBm: optical signal power [dBm] [default: 0 dBm]
@@ -226,7 +228,7 @@ def Tx(paramTx):
     sigTx  : np.array
              time-domain baseband OFDM signal
     sigSig : np.array
-             time-domain modulated signal (CE-DD-OFDM or DD-OFDM)
+             time-domain modulated signal (CE-DDO-OFDM or DDO-OFDM)
     symbTx : complex-valued np.array
              symbols sequency transmitted
     t      : np.array
@@ -240,8 +242,9 @@ def Tx(paramTx):
     # Parâmetros da transmissão
     paramTx.SpS = getattr(paramTx, "SpS", 32)
     paramTx.Rs  = getattr(paramTx, "Rs", 1.5e9)
+    paramTx.Fa  = getattr(paramTx, "Fa", 48e9)
     paramTx.Fc  = getattr(paramTx, "Fc", 193.4e12)
-    paramTx.Scheme = getattr(paramTx, "Scheme", "CE-DD-OFDM")
+    paramTx.Scheme = getattr(paramTx, "Scheme", "CE-DDO-OFDM")
     
     # Parâmetros do esquema OFDM
     paramTx.M    = getattr(paramTx, "M", 4)
@@ -253,6 +256,7 @@ def Tx(paramTx):
     paramTx.K    = getattr(paramTx, "K", 8)
     
     # Parâmetros da portadora óptica
+    paramTx.g      = getattr(paramTx, "g", 1.0)
     paramTx.Vπ     = getattr(paramTx, "Vπ", 4.4)
     paramTx.Vb     = getattr(paramTx, "Vb", -2.2)
     paramTx.Pi_dBm = getattr(paramTx, "Pi_dBm", 0)
@@ -266,8 +270,7 @@ def Tx(paramTx):
     SpS = paramTx.SpS
     Rs  = paramTx.Rs
     Fc  = paramTx.Fc
-    Ts  = 1/Rs             # Symbol period
-    Fa  = 1/(Ts/SpS)       # Sampling frequency
+    Fa  = paramTx.Fa       # Sampling frequency
     Ta  = 1/Fa             # Sampling period
     
     M    = paramTx.M
@@ -282,6 +285,7 @@ def Tx(paramTx):
     fc = paramTx.fc
     A  = paramTx.A
     
+    g      = paramTx.g
     Vπ     = paramTx.Vπ
     Vb     = paramTx.Vb
     Pi_dBm = paramTx.Pi_dBm
@@ -307,11 +311,11 @@ def Tx(paramTx):
     symbTx_OFDM, symbTx = modulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbTx)
     
     # Pulse choice
-    pulse = pulseShape('rrc', SpS, alpha = 0.25)
+    pulse = pulseShape('rrc', SpS, alpha = 0.15)
     pulse = pulse/max(abs(pulse))
     
     # CE-DD-OFDM
-    if(Scheme == "CE-DD-OFDM"):
+    if(Scheme == "CE-DDO-OFDM"):
         # Pulse formatation
         sigTx = firFilter(pulse, upsample(symbTx_OFDM.real, SpS))
         t = np.arange(0, sigTx.size)*Ta
@@ -322,14 +326,14 @@ def Tx(paramTx):
         sigTxo = mzm(Ai, sigTx_CE, Vπ, Vb)
         sigSig = sigTx_CE
     
-    # DD-OFDM
+    # DDO-OFDM
     else:
         # Pulse formatation
         sigTx = firFilter(pulse, upsample(symbTx_OFDM.real, SpS))
         t = np.arange(0, sigTx.size)*Ta
         
         # Optical modulation
-        sigTx_DD = sigTx.real*np.cos(2*pi*fc*t)
+        sigTx_DD = g*sigTx.real*np.cos(2*pi*fc*t)
         Ai = np.sqrt(Pi) * np.ones(len(sigTx_DD))
         sigTxo = mzm(Ai, sigTx_DD, Vπ, Vb)
         sigSig = sigTx_DD
@@ -349,7 +353,7 @@ def Rx(ipd, pilot, pulse, t, paramRx):
     paramRx.Fa: sampling frequency [default: 48e9]
     paramRx.H: phase modulation parameter [default: 0.35/(2*pi)]
     paramRx.fc: electrical carrier frequency [Hz] [default: 1e9 Hz]
-    paramRx.Scheme: OFDM scheme ["CE-DD-OFDM", "DD-OFDM"] [default: "CE-DD-OFDM"]
+    paramRx.Scheme: OFDM scheme ["CE-DDO-OFDM", "DDO-OFDM"] [default: "CE-DDO-OFDM"]
 
     paramTx.Nfft: size of IFFT [default: 512]
     paramTx.Ns: number of subcarriers [default: 255]
@@ -376,7 +380,7 @@ def Rx(ipd, pilot, pulse, t, paramRx):
     paramRx.Fa  = getattr(paramRx, "Fa", 48e9)
     paramRx.H   = getattr(paramRx, "H", 0.35/(2*pi))
     paramRx.fc  = getattr(paramRx, "fc", 1e9)
-    paramRx.Scheme = getattr(paramRx, "Scheme", "CE-DD-OFDM")  
+    paramRx.Scheme = getattr(paramRx, "Scheme", "CE-DDO-OFDM")  
     
     paramRx.Nfft = getattr(paramRx, "Nfft", 512)
     paramRx.Ns   = getattr(paramRx, "Ns", 255)
@@ -403,18 +407,18 @@ def Rx(ipd, pilot, pulse, t, paramRx):
     I_Rx = ipd - ipd.mean()
     I_Rx = I_Rx/np.std(I_Rx)
     
-    # CE-DD-OFDM
-    if(Scheme == "CE-DD-OFDM"):
+    # CE-DDO-OFDM
+    if(Scheme == "CE-DDO-OFDM"):
         # Demodulação da fase
         signal_a = firFilter(pulse/SpS, hilbert(I_Rx) * np.exp(-1j*2*pi*fc*t))
         sigRx = np.unwrap((np.arctan(signal_a.imag/signal_a.real)), axis = 0)/(2*pi*H)
-        
+        sigRx = sigRx - sigRx.mean()
         # Seleção das amostras do sinal recebido
         symbRx_OFDM = sigRx[0::SpS]
-    
+        
     # DD-OFDM
     else:
-        sigRx = firFilter(pulse/SpS, I_Rx*np.cos(2*pi*fc*t))
+        sigRx = firFilter(pulse/SpS, 1.5*I_Rx*np.cos(2*pi*fc*t))
         symbRx_OFDM = sigRx[0::SpS]
     
     # OFDM demodulation
