@@ -6,9 +6,10 @@ from scipy.signal      import hilbert
 from scipy.interpolate import interp1d
 
 from optic.modulation  import modulateGray, demodulateGray, GrayMapping
-from optic.dsp         import pulseShape, lowPassFIR, firFilter
+from optic.dsp         import pulseShape, lowPassFIR, firFilter, pnorm, decimate
 from optic.metrics     import signal_power
 from optic.models      import mzm
+from optic.core        import parameters
 
 from commpy.utilities  import upsample
 
@@ -298,11 +299,11 @@ def Tx(paramTx):
     bitMap = bitMap.reshape(-1, int(np.log2(M)))
 
     # Random bits sequency
-    bits = np.random.randint(2, size = Ns*2**9)
+    bits = np.random.randint(2, size = Ns*2**9) #((Nfft-K-2)//2)*2**7
     
     # Maping bits - symbols
     symbTx = modulateGray(bits, M, constType)
-    symbTx = symbTx/np.sqrt(signal_power(symbTx))
+    symbTx = pnorm(symbTx)
     
     # Pilot carriers
     pilot = max(symbTx.real) + 1j*max(symbTx.imag)
@@ -321,7 +322,7 @@ def Tx(paramTx):
         t = np.arange(0, sigTx.size)*Ta
         
         # Optical modulation
-        sigTx_CE = A*np.cos(2*pi*fc*t + 2*pi*H*sigTx.real/np.std(sigTx.real))
+        sigTx_CE = A*np.cos(2*pi*fc*t + 2*pi*H*pnorm(sigTx.real))
         Ai = np.sqrt(Pi) * np.ones(len(sigTx))
         sigTxo = mzm(Ai, sigTx_CE, Vπ, Vb)
         sigSig = sigTx_CE
@@ -403,23 +404,33 @@ def Rx(ipd, pilot, pulse, t, paramRx):
     G = paramRx.G
     K = paramRx.K
     
+    # Decimation parameters
+    paramDec = parameters()
+    paramDec.SpS_in = SpS
+    paramDec.SpS_out = 1
+    
     # DC level extraction
     I_Rx = ipd - ipd.mean()
     I_Rx = I_Rx/np.std(I_Rx)
     
     # CE-DDO-OFDM
     if(Scheme == "CE-DDO-OFDM"):
-        # Demodulação da fase
-        signal_a = firFilter(pulse/SpS, hilbert(I_Rx) * np.exp(-1j*2*pi*fc*t))
-        sigRx = np.unwrap((np.arctan(signal_a.imag/signal_a.real)), axis = 0)/(2*pi*H)
+        signal_a = hilbert(I_Rx) * np.exp(-1j*2*pi*fc*t)
+        sigRx = np.unwrap((np.arctan2(signal_a.imag, signal_a.real)), axis = 0)/(2*pi*H)
         sigRx = sigRx - sigRx.mean()
-        # Seleção das amostras do sinal recebido
-        symbRx_OFDM = sigRx[0::SpS]
         
+        # Seleção das amostras do sinal recebido 
+        sigRx = firFilter(pulse, sigRx)
+        symbRx_OFDM = decimate(sigRx.reshape(-1,1), paramDec) # downsampling to 1 sample per symbol
+        symbRx_OFDM = np.squeeze(symbRx_OFDM)
+        symbRx_OFDM = pnorm(symbRx_OFDM)
+    
     # DD-OFDM
     else:
-        sigRx = firFilter(pulse/SpS, 1.5*I_Rx*np.cos(2*pi*fc*t))
-        symbRx_OFDM = sigRx[0::SpS]
+        sigRx = firFilter(pulse, I_Rx*np.cos(2*pi*fc*t))
+        symbRx_OFDM = decimate(sigRx.reshape(-1,1), paramDec) # downsampling to 1 sample per symbol
+        symbRx_OFDM = np.squeeze(symbRx_OFDM)
+        symbRx_OFDM = pnorm(symbRx_OFDM)
     
     # OFDM demodulation
     symbRx, symbRx_neq, H_abs, H_pha = demodulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbRx_OFDM)
