@@ -13,6 +13,16 @@ from optic.core        import parameters
 
 from commpy.utilities  import upsample
 
+
+def calcSymbolRate(M, Rb, Nfft, K, G, hermitSym = True):
+    if not hermitSym:
+        nDataSymbols = (Nfft-K)
+    else:
+        nDataSymbols = (Nfft//2 - 1 - K)
+    
+    return Rb / (nDataSymbols/(Nfft + G) * np.log2(M))
+
+
 def PAPR(N, sig):
     """
     PAPR (Peak to Average Power Ratio).
@@ -99,13 +109,20 @@ def modulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbTx):
         aux = aux + N
         
         # Aplicação da IFFT
-        symbTx_P[i, G : Nfft + G] = ifft(symbTx_P[i, G:Nfft + G])#*np.sqrt(Nfft)
+        symbTx_P[i, G : Nfft + G] = ifft(symbTx_P[i, G:Nfft + G])*np.sqrt(Nfft)
 
         # Adição do prefixo cíclico
         symbTx_P[i,:] = np.concatenate((symbTx_P[i,Nfft:Nfft + G],symbTx_P[i,G:Nfft + G]))
 
     # Conversão Paralelo -> Serial
     symbTx_OFDM = np.squeeze(symbTx_P.reshape(1,len(symbTx_P[0])*len(symbTx_P)))
+    
+    aux = 0
+    for r in range(int(len(symbTx)/N)):
+        symbTx[aux:aux + N][pilot_carriers] = np.nan
+        aux += N
+
+    symbTx = symbTx[~np.isnan(symbTx)]    
     
     return symbTx_OFDM, symbTx
 
@@ -160,7 +177,7 @@ def demodulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbRx_OFDM):
         aux = aux + Nfft + G
 
         # Aplicação da FFT
-        symbRx_P[i,:] = fft(symbRx_P[i,:])#/np.sqrt(Nfft)
+        symbRx_P[i,:] = fft(symbRx_P[i,:])/np.sqrt(Nfft)
 
     for i in range(len(symbRx_P)):
         H_est = symbRx_P[i,1:1 + N][pilot_carriers] / pilot
@@ -184,10 +201,22 @@ def demodulateOFDM(Nfft, Ns, N, Nz, G, K, pilot, symbRx_OFDM):
         symbRx_S[int(aux):int(aux + N)]     = symbRx_P[i,1:1 + N]/(H_abs*np.exp(1j*H_pha))
         symbRx_S_neq[int(aux):int(aux + N)] = symbRx_P[i,1:1 + N]
         aux = aux + N
-
+    
     symbRx     = symbRx_S
     symbRx_neq = symbRx_S_neq
+    
+    aux = 0
+    for r in range(int(len(symbRx)/N)):
+        symbRx[aux:aux + N][pilot_carriers] = np.nan
+        aux += N
+    symbRx = symbRx[~np.isnan(symbRx)]
 
+    aux = 0
+    for r in range(int(len(symbRx_neq)/N)):
+        symbRx_neq[aux:aux+N][pilot_carriers] = np.nan
+        aux += N
+    symbRx_neq = symbRx_neq[~np.isnan(symbRx_neq)]
+    
     return symbRx, symbRx_neq, H_abs, H_pha
 
 
@@ -299,7 +328,7 @@ def Tx(paramTx):
     bitMap = bitMap.reshape(-1, int(np.log2(M)))
 
     # Random bits sequency
-    bits = np.random.randint(2, size = Ns*2**9) #((Nfft-K-2)//2)*2**7
+    bits = np.random.randint(2, size = Ns*2**9)
     
     # Maping bits - symbols
     symbTx = modulateGray(bits, M, constType)
@@ -313,7 +342,7 @@ def Tx(paramTx):
     
     # Pulse choice
     pulse = pulseShape('rrc', SpS, alpha = 0.15)
-    pulse = pulse/max(abs(pulse))
+    pulse = pnorm(pulse)
     
     # CE-DD-OFDM
     if(Scheme == "CE-DDO-OFDM"):
@@ -321,7 +350,6 @@ def Tx(paramTx):
         sigTx = firFilter(pulse, upsample(symbTx_OFDM.real, SpS))
         sigTx = pnorm(sigTx)
         t = np.arange(0, sigTx.size)*Ta
-        # Tirei o pnorm de sigTx_CE e adicionei o /SpS no sigTx
         
         # Optical modulation
         sigTx_CE = A*np.cos(2*pi*fc*t + 2*pi*H*(sigTx.real))
